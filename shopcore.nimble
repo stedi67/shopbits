@@ -1,9 +1,11 @@
-[Package]
-name          = "shopcore"
+# Package
+
 version       = "0.1.0"
 author        = "Stephan Diehl"
 description   = "A simple shop core DSL/system"
 license       = "MIT"
+srcDir        = "src"
 
-[Deps]
-Requires: "nim >= 2.0.0"
+# Dependencies
+
+requires "nim >= 2.0.0"

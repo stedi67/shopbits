@@ -1,5 +1,3 @@
-#!/usr/bin/env nimdebug
-
 # Poor mans Decimals
 # Do some restricted set of decimal operations with 64 bit ints.
 # At some point, it might be better to use Rationals for implementation
@@ -131,38 +129,3 @@ proc inv*(a: Decimal): Decimal =
         prec = index.int8 - a.prec
         break
   result = (value, prec)
-
-when isMainModule:
-  echo "running assetions"
-  assert($newDecimal("0.1") == "0.1")
-  assert($newDecimal("0.01") == "0.01")
-  assert($newDecimal("1.00") == "1.00")
-  assert($newDecimal("10.24") == "10.24")
-  assert($newDecimal("-1.0") == "-1.0")
-  assert($newDecimal("2.") == "2.")
-  let a = toPrecision((100i64, 0.Precision), 1)
-  let b = (1000i64, 1.Precision)
-  assert($a == $b)
-  assert($a == "100.0")
-  assert((newDecimal("0.12") + newDecimal("1.32")) == newDecimal("1.44"))
-  assert(newDecimal("0.120") == newDecimal("0.12"))
-  let c = -2 * newDecimal("0.1")
-  assert((2 * newDecimal("0.1")) == newDecimal("0.2"))
-  # fixme next
-  assert((-2 * newDecimal("0.1")) == newDecimal("-0.2"))
-  assert(newDecimal("1.005").toPrecision(2) == newDecimal("1.01"))
-  assert(newDecimal("1.0049").toPrecision(2) == newDecimal("1.00"))
-  assert($c == "-0.2")
-  assert(newDecimal("1.1") > newDecimal("1.0"))
-  assert(newDecimal("-1.1") < newDecimal("-1.0"))
-  assert(newDecimal("1.1") >= newDecimal("1.0"))
-  assert(newDecimal("-1.1") <= newDecimal("-1.0"))
-  assert(newDecimal("1.1") >= newDecimal("1.1"))
-  assert(newDecimal("1.1") <= newDecimal("1.1"))
-  assert((newDecimal("0.12") - newDecimal("1.00")) == newDecimal("-0.88"))
-  assert((newDecimal("2.00") * newDecimal("2.00")) == newDecimal("4.0000"))
-  assert((newDecimal("100.00") * newDecimal("0.19")) == newDecimal("19.0000"))
-  assert((inv newDecimal("0.5")).toPrecision(1) == newDecimal("2.0"))
-  assert((inv newDecimal("125.0")).toPrecision(4) == newDecimal("0.008"))
-  assert((inv newDecimal("1.19")).toPrecision(2) == newDecimal("0.84"))
-  assert((newDecimal("22.61") * newDecimal("1.19").inv).toPrecision(2) == newDecimal("19.00"))

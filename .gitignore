@@ -1,5 +1,7 @@
 nimcache/
-shopcore
 *.swp
-pm_decimals
-structured_string
+
+# test binaries (sources are tests/t*.nim)
+tests/*
+!tests/*.nim
+!tests/config.nims
