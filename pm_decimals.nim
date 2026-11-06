@@ -81,8 +81,11 @@ proc `<`*(a, b: Decimal): bool =
 proc `<`*[T](a: Decimal, b: T): bool =
   return a.value < b
 
-proc `>=`*[T,S](a: T, b: S): bool =
-  return not (a < b)
+proc `<=`*(a, b: Decimal): bool =
+  return not (b < a)
+
+proc `<=`*[T](a: Decimal, b: T): bool =
+  return a.value <= b
 
 proc `+`*(a, b:Decimal): Decimal =
   let prec = max(a.prec, b.prec)

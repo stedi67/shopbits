@@ -6,4 +6,4 @@ description   = "A simple shop core DSL/system"
 license       = "MIT"
 
 [Deps]
-Requires: "nim >= 0.10.0"
+Requires: "nim >= 2.0.0"

@@ -1,3 +1,5 @@
 nimcache/
 shopcore
 *.swp
+pm_decimals
+structured_string
