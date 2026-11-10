@@ -11,6 +11,7 @@ repository.**
     nim check src/shopbits.nim           # type-check without running anything
     nimble check                         # validates the .nimble file only; it does not compile
     nim c -r tools/shopbits_check.nim examples/data   # check a data directory
+    nim c -r tools/shopbits_verify.nim examples/data request.json   # verify a cart (JSON)
 
 Compiled test binaries land in `tests/` and are git-ignored.
 
@@ -33,6 +34,12 @@ Compiled test binaries land in `tests/` and are git-ignored.
   files' contents (`sha256.nim`). Strict: unknown fields and files are errors, and all
   problems are collected with file and position. The format is documented at the top of
   the module
+- `src/shopbits/verify.nim`: `verify` takes a cart as JSON and returns, as JSON, the tax
+  lines, amounts and totals of every line, plus the snapshot id and the day. A malformed
+  request is refused with all its errors (`ok` false), and a sale that is not allowed is a
+  normal result. The formats are documented at the top of the module
+- `src/shopbits/jsoncheck.nim`: strict JSON field validation that collects all problems,
+  shared by `snapshot.nim` and `verify.nim`
 - `src/shopbits/structured_code.nim` and `structured_code/`: generic library for
   fixed-width codes made of named slots (SKUs and similar)
   - `layout.nim`: `Layout`, validation, prefix handling
@@ -78,7 +85,10 @@ Compiled test binaries land in `tests/` and are git-ignored.
 
 - Tax lookups take the day they are for (`asOf`), with no default: a result must never
   silently depend on today's date. Both ends of a rule's period are inclusive.
-- Rates are strings in files, never JSON numbers (no floats).
+- Rates and amounts are strings in files and requests, never JSON numbers (no floats).
+- Tax amounts are computed exactly with integers (`taxAmounts`), halves rounded up, and
+  never with `pm_decimals.inv` (it loses digits). `verify` computes the taxes on the whole
+  line (price times quantity), not per article.
 - Changing the file format means changing `SchemaVersion`, the module docs, the example
   data and the loader tests together.
 
