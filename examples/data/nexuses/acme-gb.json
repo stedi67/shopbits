@@ -1,0 +1,10 @@
+{
+  "seller": "acme",
+  "source": "gb",
+  "fallback": "reject",
+  "rules": [
+    {"tax": "vat", "destination": "gb", "rate": "0.20"},
+    {"tax": "vat", "destination": "de", "rate": "0.00", "treatment": "importDueByCustomer",
+     "reason": "import tax is payable by the customer"}
+  ]
+}

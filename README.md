@@ -14,8 +14,17 @@ or [Nim's installer](https://nim-lang.org/install.html).
     src/shopbits.nim           main module: money, prices, taxes
     src/shopbits/              submodules
       pm_decimals.nim            fixed precision decimals based on int64
+      tax_nexus.nim              which tax rules apply, by seller and delivery source
+      date.nim                   calendar dates (effective dates of rules)
+      snapshot.nim               loads and validates reference data from text files
+      verify.nim                 verifies a cart (JSON in, JSON out) against a snapshot
+      jsoncheck.nim              strict JSON validation shared by snapshot and verify
+      sha256.nim                 content hash for snapshot ids
       structured_code.nim        fixed-width codes made of named slots, with typed queries
       structured_code/           its submodules
+    tools/shopbits_check.nim   checks a data directory, e.g. for CI of a data repository
+    tools/shopbits_verify.nim  verifies a cart given as JSON against a data directory
+    examples/data/             a small fictional data set in the format snapshot.nim loads
     tests/                     unit tests (unittest), one t*.nim file per module
 
 ## Using it
@@ -23,6 +32,33 @@ or [Nim's installer](https://nim-lang.org/install.html).
 shopbits is a library. Import it from your code:
 
     import shopbits
+
+### Reference data
+
+`shopbits/snapshot` loads reference data (for now the tax nexuses and their rules)
+from a directory of plain JSON files, for example a git repository, and validates it
+strictly: unknown fields and files, bad values and duplicates are all reported
+together, each with its file and position. The loaded `Snapshot` is immutable and has
+an `id`, the SHA-256 of the contents of its files, so a result can be traced to
+exactly the data it came from. Rules can be effective for a period (`validFrom`,
+`validUntil`), and every tax lookup takes the day it is for.
+
+    nim c -r tools/shopbits_check.nim examples/data
+
+The file format is described in the documentation at the top of
+`src/shopbits/snapshot.nim`; `examples/data` is a small fictional example.
+
+### Verifying a cart
+
+`shopbits/verify` takes a cart as JSON (the day, the buyer, the seller, the delivery
+source and the lines with their catalog prices) and returns, as JSON, the taxes of
+every line, the amounts and the totals per currency, together with the id of the
+snapshot and the day it was computed for. The request is checked strictly and all its
+errors are reported together. A sale a seller may not make is a normal result, not an
+error. The formats are described in the documentation at the top of
+`src/shopbits/verify.nim`.
+
+    nim c -r tools/shopbits_verify.nim examples/data request.json
 
 ### structured_code
 

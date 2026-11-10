@@ -1,0 +1,8 @@
+{
+  "seller": "globex",
+  "source": "us",
+  "fallback": "zeroTax",
+  "rules": [
+    {"destination": "us", "rate": "0.07"}
+  ]
+}
