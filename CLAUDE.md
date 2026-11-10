@@ -10,6 +10,7 @@ repository.**
     nim c -r tests/tstructured_code.nim  # a single test file
     nim check src/shopbits.nim           # type-check without running anything
     nimble check                         # validates the .nimble file only; it does not compile
+    nim c -r tools/shopbits_check.nim examples/data   # check a data directory
 
 Compiled test binaries land in `tests/` and are git-ignored.
 
@@ -26,12 +27,20 @@ Compiled test binaries land in `tests/` and are git-ignored.
   information) into an `OrderPrice` (with tax lines, and gross, net and tax amounts)
   using its nexus. All taxes are computed on the same net amount; each line is rounded
   and the total tax is the sum of the lines, so net + tax == gross exactly
+- `src/shopbits/date.nim`: calendar `Date` (no time, no zone) for effective dates
+- `src/shopbits/snapshot.nim`: loads and validates reference data (nexuses) from a
+  directory of JSON files into an immutable `Snapshot` whose `id` is the SHA-256 of the
+  files' contents (`sha256.nim`). Strict: unknown fields and files are errors, and all
+  problems are collected with file and position. The format is documented at the top of
+  the module
 - `src/shopbits/structured_code.nim` and `structured_code/`: generic library for
   fixed-width codes made of named slots (SKUs and similar)
   - `layout.nim`: `Layout`, validation, prefix handling
   - `query.nim`: typed query algebra (`or`, `and`, `-`, `not`, `<=`, `in`)
   - `define.nim`: `defineStructuredCode` macro (code type, accessors, queries)
   - `family.nim`: `defineCodeFamily` macro (several kinds of codes in one family)
+- `tools/`: command line tools (not part of the package); `examples/data`: a small
+  fictional data set
 - `tests/`: one `t<module>.nim` per module; `tests/config.nims` puts `src` on the path
 
 ## Rules for this repo
@@ -41,6 +50,8 @@ Compiled test binaries land in `tests/` and are git-ignored.
   messages. Use neutral examples (e.g. a SKU of category, color and size).
 - Do not push unless asked. Do not change the git user config.
 - Do not commit `claude.txt`, `nimcache/` or compiled test binaries.
+- Example and test data must be fictional (made-up sellers, rates and rule changes). Real
+  reference data, especially commercial data, belongs in a separate private repository.
 
 ## Nim conventions and gotchas
 
@@ -62,6 +73,14 @@ Compiled test binaries land in `tests/` and are git-ignored.
   `mixin layoutOf`.
 - `<=` on queries is decided exactly (`isEmpty` in `query.nim`). A randomized test
   compares it with brute-force set algebra; keep it passing when touching the algebra.
+
+## Reference data
+
+- Tax lookups take the day they are for (`asOf`), with no default: a result must never
+  silently depend on today's date. Both ends of a rule's period are inclusive.
+- Rates are strings in files, never JSON numbers (no floats).
+- Changing the file format means changing `SchemaVersion`, the module docs, the example
+  data and the loader tests together.
 
 ## Tests
 

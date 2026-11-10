@@ -1,0 +1,13 @@
+{
+  "seller": "acme",
+  "source": "de",
+  "fallback": "reject",
+  "rules": [
+    {"tax": "vat", "destination": "de", "goodsTypes": ["book"], "rate": "0.07"},
+    {"tax": "vat", "destination": "de", "rate": "0.19", "validUntil": "2026-12-31"},
+    {"tax": "vat", "destination": "de", "rate": "0.21", "validFrom": "2027-01-01"},
+    {"tax": "levy", "destination": "de", "goodsTypes": ["physical"], "rate": "0.02"},
+    {"tax": "vat", "destination": "gb", "rate": "0.00", "treatment": "importDueByCustomer",
+     "reason": "import tax is payable by the customer"}
+  ]
+}
