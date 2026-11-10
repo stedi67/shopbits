@@ -127,23 +127,52 @@ proc totalRate*(taxes: seq[TaxLine]): Decimal =
 proc totalRate*(price: OrderPrice): Decimal =
   price.taxes.totalRate
 
+func pow10(n: int): int64 =
+  result = 1
+  for _ in 1 .. n: result *= 10
+
+func roundedDiv(numerator, denominator: int64): int64 =
+  ## numerator / denominator rounded to the nearest integer, halves up (both are
+  ## not negative, the denominator is positive).
+  (2 * numerator + denominator) div (2 * denominator)
+
 proc taxAmounts*(price: OrderPrice): seq[Money] =
-  ## The amount of each tax line, in the order of the lines, each rounded to the
-  ## precision of the price. The total tax is the sum of these, so that net, tax
-  ## and gross always add up exactly.
+  ## The amount of each tax line, in the order of the lines, each rounded (halves
+  ## up) to the precision of the price. The total tax is the sum of these, so that
+  ## net, tax and gross always add up exactly.
+  ##
+  ## The amounts are computed exactly, with integers: for a net price a line is
+  ## ``net * rate``, for a gross price it is ``gross * rate / (1 + total rate)``,
+  ## the tax contained in the gross price. Raises `ValueError` if the amount is
+  ## so large that it cannot be computed with 64 bit integers.
   let
     x = price.value
     currency = price.raw.currency
-  case price.priceType:
-    of PriceType.net:
-      for line in price.taxes:
-        result.add (((x * line.rate).toPrecision(x.prec)), currency)
-    of PriceType.gross:
-      # the tax contained in a gross price: x * rate / (1 + total rate)
-      if price.taxes.len > 0:
-        let share = inv (newDecimal("1.0") + price.totalRate)
-        for line in price.taxes:
-          result.add (((x * line.rate * share).toPrecision(x.prec)), currency)
+  if price.taxes.len == 0: return
+  if x.value < 0:
+    raise newException(ValueError, "the amount of a price must not be negative")
+  # all the rates with the same number of decimals, as integers
+  var decimals = 0
+  for line in price.taxes:
+    if line.rate.value < 0:
+      raise newException(ValueError, "a tax rate must not be negative")
+    decimals = max(decimals, int(line.rate.prec))
+  if decimals > 9:
+    raise newException(ValueError, "a tax rate has too many decimals")
+  var
+    scaled: seq[int64]
+    total = 0'i64
+  for line in price.taxes:
+    let rate = line.rate.value * pow10(decimals - int(line.rate.prec))
+    scaled.add rate
+    total += rate
+  let denominator = case price.priceType
+    of PriceType.net: pow10(decimals)
+    of PriceType.gross: pow10(decimals) + total
+  for rate in scaled:
+    if x.value != 0 and rate > high(int64) div (2 * x.value) - 1:
+      raise newException(ValueError, "the amount is too large to compute its tax")
+    result.add ((roundedDiv(x.value * rate, denominator), x.prec), currency)
 
 proc tax*(price: OrderPrice): Money =
   ## The total tax.
