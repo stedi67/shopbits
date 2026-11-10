@@ -7,8 +7,8 @@ func address(country: string): TaxAddress = TaxAddress(country_code: country)
 func rule(destination: string, rate: string,
           goods: set[GoodsType] = AllGoodsTypes,
           business: set[BusinessType] = AllBusinessTypes,
-          treatment = TaxTreatment.standard, reason = ""): TaxRule =
-  TaxRule(destination: destination, goodsTypes: goods, businessTypes: business,
+          treatment = TaxTreatment.standard, reason = "", tax = DefaultTax): TaxRule =
+  TaxRule(tax: tax, destination: destination, goodsTypes: goods, businessTypes: business,
           rate: newDecimal(rate), treatment: treatment, reason: reason)
 
 # A restricted seller: registered in "gb" and "de". The same seller has a
@@ -30,31 +30,31 @@ suite "tax for a nexus":
   test "a domestic sale uses the domestic rate":
     let lookup = fromGb.taxFor(address("gb"), btB2C, GoodsType.physical)
     check lookup.allowed
-    check lookup.decision.rate == newDecimal("0.20")
-    check lookup.decision.treatment == TaxTreatment.standard
+    check lookup.decision.totalRate == newDecimal("0.20")
+    check lookup.decision.lines[0].treatment == TaxTreatment.standard
 
   test "the same customer gets different rules from another delivery source":
     # a customer in gb, goods delivered from gb ...
     let domestic = fromGb.taxFor(address("gb"), btB2C, GoodsType.physical)
-    check domestic.decision.rate == newDecimal("0.20")
-    check domestic.decision.treatment == TaxTreatment.standard
+    check domestic.decision.totalRate == newDecimal("0.20")
+    check domestic.decision.lines[0].treatment == TaxTreatment.standard
     # ... and delivered from de
     let crossBorder = fromDe.taxFor(address("gb"), btB2C, GoodsType.physical)
     check crossBorder.allowed
-    check crossBorder.decision.rate == newDecimal("0.00")
-    check crossBorder.decision.treatment == TaxTreatment.importDueByCustomer
-    check "import tax" in crossBorder.decision.reason
+    check crossBorder.decision.totalRate == newDecimal("0.00")
+    check crossBorder.decision.lines[0].treatment == TaxTreatment.importDueByCustomer
+    check "import tax" in crossBorder.decision.lines[0].reason
 
   test "rules match the goods type and the business type":
     let nexus = Nexus(seller: "acme", source: "de", fallback: Fallback.reject, rules: @[
       rule("fr", "0.00", business = {btB2B}, treatment = TaxTreatment.reverseCharge),
       rule("fr", "0.20", goods = {GoodsType.physical}),
       rule("fr", "0.055", goods = {GoodsType.book})])
-    check nexus.taxFor(address("fr"), btB2B, GoodsType.physical).decision.treatment ==
+    check nexus.taxFor(address("fr"), btB2B, GoodsType.physical).decision.lines[0].treatment ==
       TaxTreatment.reverseCharge
-    check nexus.taxFor(address("fr"), btB2C, GoodsType.physical).decision.rate ==
+    check nexus.taxFor(address("fr"), btB2C, GoodsType.physical).decision.totalRate ==
       newDecimal("0.20")
-    check nexus.taxFor(address("fr"), btB2C, GoodsType.book).decision.rate ==
+    check nexus.taxFor(address("fr"), btB2C, GoodsType.book).decision.totalRate ==
       newDecimal("0.055")
     # no rule for software to consumers: rejected, since this seller is restricted
     check not nexus.taxFor(address("fr"), btB2C, GoodsType.software).allowed
@@ -63,9 +63,9 @@ suite "tax for a nexus":
     let nexus = Nexus(seller: "acme", source: "de", fallback: Fallback.reject, rules: @[
       rule("fr", "0.055", goods = {GoodsType.book}),
       rule("fr", "0.20")])
-    check nexus.taxFor(address("fr"), btB2C, GoodsType.book).decision.rate ==
+    check nexus.taxFor(address("fr"), btB2C, GoodsType.book).decision.totalRate ==
       newDecimal("0.055")
-    check nexus.taxFor(address("fr"), btB2C, GoodsType.physical).decision.rate ==
+    check nexus.taxFor(address("fr"), btB2C, GoodsType.physical).decision.totalRate ==
       newDecimal("0.20")
 
 suite "fallback":
@@ -79,12 +79,12 @@ suite "fallback":
   test "a worldwide seller sells without tax where it has no rule":
     let lookup = worldwide.taxFor(address("jp"), btB2C, GoodsType.software)
     check lookup.allowed
-    check lookup.decision.rate == newDecimal("0.00")
-    check lookup.decision.treatment == TaxTreatment.zeroRated
+    check lookup.decision.lines.len == 0
+    check lookup.decision.totalRate == newDecimal("0.00")
     check "'jp'" in lookup.decision.reason
 
   test "explicit rules win over the fallback":
-    check worldwide.taxFor(address("us"), btB2C, GoodsType.physical).decision.rate ==
+    check worldwide.taxFor(address("us"), btB2C, GoodsType.physical).decision.totalRate ==
       newDecimal("0.07")
 
 suite "registry":
@@ -102,9 +102,9 @@ suite "registry":
 
   test "the lookup uses the nexus of the seller and the delivery source":
     check registry.taxFor("acme", "gb", address("gb"), btB2C, GoodsType.physical)
-      .decision.treatment == TaxTreatment.standard
+      .decision.lines[0].treatment == TaxTreatment.standard
     check registry.taxFor("acme", "de", address("gb"), btB2C, GoodsType.physical)
-      .decision.treatment == TaxTreatment.importDueByCustomer
+      .decision.lines[0].treatment == TaxTreatment.importDueByCustomer
     check registry.taxFor("globex", "us", address("jp"), btB2C, GoodsType.physical).allowed
 
   test "selling without a nexus is not allowed":
@@ -146,8 +146,8 @@ suite "line items":
   test "the tax of a domestic sale is added to a net price":
     let taxed = registry.applyTax(lineItem("acme", "gb", netPrice), address("gb"))
     check taxed.allowed
-    check taxed.decision.treatment == TaxTreatment.standard
-    check taxed.price.taxRate == newDecimal("0.20")
+    check taxed.decision.lines[0].treatment == TaxTreatment.standard
+    check taxed.price.totalRate == newDecimal("0.20")
     check taxed.price.net == newMoney("100.00", curEur)
     check taxed.price.tax == newMoney("20.00", curEur)
     check taxed.price.gross == newMoney("120.00", curEur)
@@ -163,7 +163,7 @@ suite "line items":
     let item = lineItem("acme", "de", netPrice)
     let crossBorder = registry.applyTax(item, address("gb"))
     check crossBorder.allowed
-    check crossBorder.decision.treatment == TaxTreatment.importDueByCustomer
+    check crossBorder.decision.lines[0].treatment == TaxTreatment.importDueByCustomer
     check crossBorder.price.tax == newMoney("0.00", curEur)
     check crossBorder.price.gross == newMoney("100.00", curEur)
     # delivered from gb instead
@@ -181,7 +181,7 @@ suite "line items":
     check taxed.item == item
     check taxed.price.raw == item.price.raw
     check taxed.price.priceType == PriceType.net
-    check taxed.price.taxRate == newDecimal("0.00")
+    check taxed.price.totalRate == newDecimal("0.00")
 
   test "a sale that is not allowed says why":
     let taxed = registry.applyTax(lineItem("acme", "gb", netPrice), address("us"))
@@ -194,10 +194,116 @@ suite "line items":
   test "a worldwide seller sells without tax":
     let taxed = registry.applyTax(lineItem("globex", "us", netPrice), address("jp"))
     check taxed.allowed
+    check taxed.price.taxes.len == 0
     check taxed.price.tax == newMoney("0.00", curEur)
     check taxed.price.gross == newMoney("100.00", curEur)
 
   test "the lookup of a line item matches the lookup by its fields":
     let item = lineItem("acme", "gb", netPrice)
-    check registry.taxFor(item, address("gb")).decision.rate ==
-      registry.taxFor("acme", "gb", address("gb"), btB2C, GoodsType.physical).decision.rate
+    check registry.taxFor(item, address("gb")).decision.totalRate ==
+      registry.taxFor("acme", "gb", address("gb"), btB2C, GoodsType.physical).decision.totalRate
+
+suite "several taxes":
+  let
+    multi = Nexus(seller: "acme", source: "de", fallback: Fallback.reject, rules: @[
+      rule("de", "0.19", tax = "vat"),
+      rule("de", "0.02", goods = {GoodsType.physical}, tax = "levy")])
+
+  func rates(lookup: TaxLookup): seq[(string, string)] =
+    for line in lookup.decision.lines:
+      result.add (line.tax, $line.rate)
+
+  test "every tax with a matching rule gives a line, in the order of the taxes":
+    let lookup = multi.taxFor(address("de"), btB2C, GoodsType.physical)
+    check lookup.allowed
+    check lookup.decision.lines.len == 2
+    check lookup.decision.lines[0].tax == "vat"
+    check lookup.decision.lines[0].rate == newDecimal("0.19")
+    check lookup.decision.lines[1].tax == "levy"
+    check lookup.decision.lines[1].rate == newDecimal("0.02")
+    check lookup.decision.totalRate == newDecimal("0.21")
+
+  test "the order of the lines does not depend on which rule of a tax wins":
+    let nexus = Nexus(seller: "acme", source: "de", fallback: Fallback.reject, rules: @[
+      rule("de", "0.07", goods = {GoodsType.book}, tax = "vat"),
+      rule("de", "0.02", tax = "levy"),
+      rule("de", "0.19", tax = "vat")])
+    # vat is listed first, so it comes first, whether the book or the general rule wins
+    for goods in [GoodsType.book, GoodsType.physical]:
+      let lookup = nexus.taxFor(address("de"), btB2C, goods)
+      check lookup.decision.lines[0].tax == "vat"
+      check lookup.decision.lines[1].tax == "levy"
+
+  test "taxes without a matching rule are left out":
+    # the levy is only for physical goods
+    let lookup = multi.taxFor(address("de"), btB2C, GoodsType.software)
+    check lookup.allowed
+    check lookup.decision.lines.len == 1
+    check lookup.decision.lines[0].tax == "vat"
+    check lookup.decision.totalRate == newDecimal("0.19")
+
+  test "for each tax the first matching rule wins, independent of the other taxes":
+    let nexus = Nexus(seller: "acme", source: "de", fallback: Fallback.reject, rules: @[
+      rule("de", "0.07", goods = {GoodsType.book}, tax = "vat"),
+      rule("de", "0.02", goods = {GoodsType.physical}, tax = "levy"),
+      rule("de", "0.19", tax = "vat")])
+    # a book: the reduced vat rule comes first, the levy does not match
+    let book = nexus.taxFor(address("de"), btB2C, GoodsType.book)
+    check book.decision.lines.len == 1
+    check book.decision.lines[0].rate == newDecimal("0.07")
+    # other physical goods: the general vat rule, plus the levy
+    let other = nexus.taxFor(address("de"), btB2C, GoodsType.physical)
+    check other.decision.lines.len == 2
+    check other.decision.lines[0].tax == "vat"
+    check other.decision.lines[0].rate == newDecimal("0.19")
+    check other.decision.lines[1].tax == "levy"
+
+  test "a tax can be exempt for some goods while another still applies":
+    let nexus = Nexus(seller: "acme", source: "de", fallback: Fallback.reject, rules: @[
+      rule("de", "0.00", goods = {GoodsType.book}, treatment = TaxTreatment.exempt, tax = "vat"),
+      rule("de", "0.19", tax = "vat"),
+      rule("de", "0.02", tax = "levy")])
+    let lookup = nexus.taxFor(address("de"), btB2C, GoodsType.book)
+    check lookup.decision.lines[0].treatment == TaxTreatment.exempt
+    check lookup.decision.totalRate == newDecimal("0.02")
+
+  test "only a tax that is specific to a destination applies there":
+    let nexus = Nexus(seller: "acme", source: "de", fallback: Fallback.reject, rules: @[
+      rule("de", "0.19", tax = "vat"),
+      rule("fr", "0.03", tax = "levy")])
+    let lookup = nexus.taxFor(address("fr"), btB2C, GoodsType.physical)
+    check lookup.allowed
+    check lookup.decision.lines.len == 1
+    check lookup.decision.lines[0].tax == "levy"
+
+  test "a destination without any matching rule is still rejected or taxed by the fallback":
+    check not multi.taxFor(address("us"), btB2C, GoodsType.physical).allowed
+    let open = Nexus(seller: "acme", source: "de", fallback: Fallback.zeroTax, rules: multi.rules)
+    check open.taxFor(address("us"), btB2C, GoodsType.physical).decision.lines.len == 0
+
+  test "the default tax is used if a rule does not name one":
+    check rule("de", "0.19").tax == DefaultTax
+    let lookup = fromGb.taxFor(address("gb"), btB2C, GoodsType.physical)
+    check lookup.decision.lines[0].tax == DefaultTax
+
+  test "line items get all the taxes of their nexus":
+    var registry = NexusRegistry()
+    registry.add multi
+    let item = LineItem(
+      price: (newMoney("100.00", curEur), PriceType.net), businessType: btB2C, quantity: 1,
+      seller: "acme", deliverySource: "de",
+      article: Article(id: "sku-1", name: "an article", goodsType: GoodsType.physical))
+    let taxed = registry.applyTax(item, address("de"))
+    check taxed.allowed
+    check taxed.price.taxes.len == 2
+    let amounts = taxed.price.taxAmounts
+    check amounts[0] == newMoney("19.00", curEur)
+    check amounts[1] == newMoney("2.00", curEur)
+    check taxed.price.tax == newMoney("21.00", curEur)
+    check taxed.price.gross == newMoney("121.00", curEur)
+    # a gross price contains all of them
+    var grossItem = item
+    grossItem.price = (newMoney("121.00", curEur), PriceType.gross)
+    let taxedGross = registry.applyTax(grossItem, address("de"))
+    check taxedGross.price.net == newMoney("100.00", curEur)
+    check taxedGross.price.tax == newMoney("21.00", curEur)

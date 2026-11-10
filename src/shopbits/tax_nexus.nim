@@ -20,6 +20,13 @@
 ## invoice can say *why* the rate is what it is (e.g. "import tax is payable by
 ## the customer").
 ##
+## A sale can have **several taxes** (say a general tax and a specific levy). A
+## rule says which tax it is for (`TaxRule.tax`, `DefaultTax` if there is only
+## one kind). Rules for the same tax compete (see below), rules for different
+## taxes are independent: every tax that has a matching rule gives one `TaxLine`
+## of the result, in the order in which the taxes first appear in the rules. All
+## taxes are computed on the same net amount.
+##
 ## .. code-block:: nim
 ##   import shopbits
 ##   import shopbits/tax_nexus
@@ -31,31 +38,23 @@
 ##
 ##   let buyer = TaxAddress(country_code: "de")
 ##   let lookup = registry.taxFor("acme", "de", buyer, btB2C, GoodsType.physical)
-##   assert lookup.allowed and lookup.decision.rate == newDecimal("0.19")
+##   assert lookup.allowed and lookup.decision.totalRate == newDecimal("0.19")
 ##
-## Rules are checked in order and the first match wins, so put specific rules
-## before general ones. Tax regions are compared exactly (they are the country
-## codes of `taxAddressToTaxRegion`).
+## For each tax, the rules are checked in order and the first match wins, so put
+## specific rules before general ones. Tax regions are compared exactly (they are
+## the country codes of `taxAddressToTaxRegion`).
 ##
 ## A `LineItem` (which names the seller and the delivery source) has a
 ## `CatalogPrice` without any tax: the tax is only known once all information
 ## about the sale is available. `applyTax` looks up the nexus and returns the
-## price as an `OrderPrice` with the rate of the nexus, which has the gross, net
-## and tax amounts. A net price gets the tax on top, a gross price contains the tax at
-## the rate of the nexus.
+## price as an `OrderPrice` with the tax lines of the nexus, which has the gross,
+## net and tax amounts. A net price gets the taxes on top, a gross price contains
+## the taxes at the rates of the nexus.
 
 import std/options
 import ../shopbits
 
 type
-  TaxTreatment* {.pure.} = enum
-    ## How the tax of a sale is handled.
-    standard           ## the seller charges the rate
-    reverseCharge      ## the customer accounts for the tax
-    zeroRated          ## taxable at a rate of zero
-    exempt             ## not subject to tax
-    importDueByCustomer  ## import tax is payable by the customer on delivery
-
   Fallback* {.pure.} = enum
     ## What a nexus does for a destination it has no rule for.
     reject   ## the seller may not sell there
@@ -63,6 +62,8 @@ type
 
   TaxRule* = object
     ## The tax for sales to `destination` of the given goods and business types.
+    tax*: string = DefaultTax
+      ## which tax this rule is for; for each tax, the first matching rule wins
     destination*: string
     goodsTypes*: set[GoodsType]
     businessTypes*: set[BusinessType]
@@ -82,9 +83,12 @@ type
     nexuses: seq[Nexus]
 
   TaxDecision* = object
-    rate*: Decimal
-    treatment*: TaxTreatment
+    ## The taxes of a sale.
+    lines*: seq[TaxLine]
+      ## one for each tax that has a matching rule, in the order in which the
+      ## taxes first appear in the rules; empty if no tax is charged
     reason*: string
+      ## set if no rule matched and the seller sells there without tax
 
   TaxLookup* = object
     ## The result of looking up the tax of a sale. A sale that is not allowed
@@ -98,13 +102,17 @@ type
     case allowed*: bool
     of true:
       item*: LineItem  ## the line item, unchanged
-      price*: OrderPrice  ## the price of one article with the rate of the decision
+      price*: OrderPrice  ## the price of one article with the tax lines of the decision
       decision*: TaxDecision
     of false: reason*: string
 
 const
   AllGoodsTypes* = {GoodsType.physical .. GoodsType.book}
   AllBusinessTypes* = {btB2C, btB2B}
+
+func totalRate*(decision: TaxDecision): Decimal =
+  ## The sum of the rates of all the taxes of the decision.
+  decision.lines.totalRate
 
 # registry
 
@@ -135,14 +143,23 @@ proc taxFor*(nexus: Nexus, buyer: TaxAddress, businessType: BusinessType,
              goodsType: GoodsType): TaxLookup =
   ## The tax for selling `goodsType` to `buyer` under the rules of the nexus.
   let destination = taxAddressToTaxRegion(buyer)
+  # The lines follow the order in which the taxes first appear in the rules, no
+  # matter which rule of a tax wins.
+  var taxes: seq[string]
   for rule in nexus.rules:
-    if rule.matches(destination, businessType, goodsType):
-      return TaxLookup(allowed: true, decision: TaxDecision(
-        rate: rule.rate, treatment: rule.treatment, reason: rule.reason))
+    if rule.tax notin taxes: taxes.add rule.tax
+  var lines: seq[TaxLine]
+  for tax in taxes:
+    for rule in nexus.rules:
+      if rule.tax == tax and rule.matches(destination, businessType, goodsType):
+        lines.add TaxLine(tax: rule.tax, rate: rule.rate, treatment: rule.treatment,
+                          reason: rule.reason)
+        break
+  if lines.len > 0:
+    return TaxLookup(allowed: true, decision: TaxDecision(lines: lines))
   case nexus.fallback
   of Fallback.zeroTax:
     TaxLookup(allowed: true, decision: TaxDecision(
-      rate: newDecimal("0.00"), treatment: TaxTreatment.zeroRated,
       reason: "no tax rule for '" & destination & "', no tax is charged"))
   of Fallback.reject:
     TaxLookup(allowed: false, reason:
@@ -174,5 +191,5 @@ proc applyTax*(registry: NexusRegistry, item: LineItem, buyer: TaxAddress): Taxe
   if not lookup.allowed:
     return TaxedLineItem(allowed: false, reason: lookup.reason)
   TaxedLineItem(allowed: true, item: item,
-                price: item.price.withTax(lookup.decision.rate),
+                price: item.price.withTax(lookup.decision.lines),
                 decision: lookup.decision)

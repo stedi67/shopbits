@@ -19,10 +19,13 @@ Compiled test binaries land in `tests/` and are git-ignored.
 - `src/shopbits/pm_decimals.nim`: fixed-precision decimals on int64; restricted set
   of operations, not production grade
 - `src/shopbits/tax_nexus.nim`: tax nexus = seller + delivery source; selects a set of
-  tax rules (rate and treatment by destination, goods type, business type). A sale that
-  is not allowed is a returned outcome (`TaxLookup`, `TaxedLineItem`), not an exception.
-  `applyTax` turns the `CatalogPrice` of a `LineItem` (no tax information) into an
-  `OrderPrice` (with tax rate, and gross, net and tax amounts) using its nexus
+  tax rules (tax, destination, goods type, business type -> rate, treatment). A sale can
+  have several taxes: one `TaxLine` per tax with a matching rule (first match wins per
+  tax). A sale that is not allowed is a returned outcome (`TaxLookup`, `TaxedLineItem`),
+  not an exception. `applyTax` turns the `CatalogPrice` of a `LineItem` (no tax
+  information) into an `OrderPrice` (with tax lines, and gross, net and tax amounts)
+  using its nexus. All taxes are computed on the same net amount; each line is rounded
+  and the total tax is the sum of the lines, so net + tax == gross exactly
 - `src/shopbits/structured_code.nim` and `structured_code/`: generic library for
   fixed-width codes made of named slots (SKUs and similar)
   - `layout.nim`: `Layout`, validation, prefix handling
