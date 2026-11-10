@@ -14,6 +14,7 @@ or [Nim's installer](https://nim-lang.org/install.html).
     src/shopbits.nim           main module: money, prices, taxes
     src/shopbits/              submodules
       pm_decimals.nim            fixed precision decimals based on int64
+      tax_nexus.nim              which tax rules apply, by seller and delivery source
       structured_code.nim        fixed-width codes made of named slots, with typed queries
       structured_code/           its submodules
     tests/                     unit tests (unittest), one t*.nim file per module
