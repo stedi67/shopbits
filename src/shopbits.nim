@@ -22,18 +22,21 @@ type
   GoodsType* {.pure.} = enum
     physical, software, book
 
-  Tax* = object
-    id*: int
-    tax_region*: string
-    goods_type*: GoodsType
-    rate*: Decimal
-
   TaxAddress* = object
     postal_code*: string
     region*: string
     country_code*: string
 
-  Price* = tuple
+  # A price as it is quoted in the catalog, net or gross. It says nothing about
+  # tax: the tax is only known once all information about the sale is available
+  # (see `shopbits/tax_nexus`), which turns it into an `OrderPrice`.
+  CatalogPrice* = tuple
+    raw: Money
+    priceType: PriceType
+
+  # The price in an order: a catalog price together with the tax rate that
+  # applies to the sale. Only this has gross, net and tax amounts.
+  OrderPrice* = tuple
     raw: Money
     taxRate: Decimal
     priceType: PriceType
@@ -44,12 +47,18 @@ type
     goodsType*: GoodsType
 
   LineItem* = object
-    b2bTax*: Tax
-    b2cTax*: Tax
-    price*: Price
+    price*: CatalogPrice
+      ## the catalog price of one article; the tax is applied by the tax
+      ## nexus (see `shopbits/tax_nexus`)
     businessType*: BusinessType
     article*: Article
     quantity*: int
+    seller*: string
+      ## who sells the article; together with the delivery source it selects
+      ## the tax rules
+    deliverySource*: string
+      ## the tax region the article is delivered from; for goods that are not
+      ## delivered physically, the home region of the seller
 
   LineItemRef* = ref LineItem
 
@@ -73,10 +82,14 @@ proc `-`*(a, b:Money): Money =
   result = (a.amount - b.amount, a.currency)
 
 # prices
-proc value*(price: Price): Decimal =
+proc value*(price: CatalogPrice | OrderPrice): Decimal =
   result = price.raw.amount
 
-proc gross*(price: Price): Money =
+proc withTax*(price: CatalogPrice, rate: Decimal): OrderPrice =
+  ## The price in an order, now that the tax rate of the sale is known.
+  (price.raw, rate, price.priceType)
+
+proc gross*(price: OrderPrice): Money =
   case price.priceType:
     of PriceType.gross:
       result = price.raw
@@ -86,7 +99,7 @@ proc gross*(price: Price): Money =
       let new_value = (x + x * rate).toPrecision(x.prec)
       result = (new_value, price.raw.currency)
 
-proc net*(price: Price): Money =
+proc net*(price: OrderPrice): Money =
   case price.priceType:
     of PriceType.gross:
       let x = price.value
@@ -96,5 +109,5 @@ proc net*(price: Price): Money =
     of PriceType.net:
       result = price.raw
 
-proc tax*(price: Price): Money =
+proc tax*(price: OrderPrice): Money =
   result = price.gross - price.net
