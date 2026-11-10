@@ -1,5 +1,5 @@
 import unittest
-import shopcore
+import shopbits
 
 suite "money":
   test "formatting and arithmetic":

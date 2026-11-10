@@ -1,7 +1,7 @@
 ## Tests of the generic library, with a made-up family of codes that has nothing
 ## to do with any particular domain.
 import std/[unittest, strutils]
-import shopcore/structured_code
+import shopbits/structured_code
 
 type Amount = distinct string
 

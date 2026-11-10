@@ -2,7 +2,7 @@
 
 version       = "0.1.0"
 author        = "Stephan Diehl"
-description   = "A simple shop core DSL/system"
+description   = "Building blocks for shopping systems"
 license       = "MIT"
 srcDir        = "src"
 

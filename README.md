@@ -1,5 +1,5 @@
-# shopcore
-shopcore is supposed to grow into the core of a shopping system. The system is mostly experimental and educational.
+# shopbits
+shopbits is supposed to grow into a collection of building blocks for shopping systems. It is mostly experimental and educational.
 
 ## Requirements
 
@@ -10,9 +10,9 @@ or [Nim's installer](https://nim-lang.org/install.html).
 
 ## Project layout
 
-    shopcore.nimble            package definition
-    src/shopcore.nim           main module: money, prices, taxes
-    src/shopcore/              submodules
+    shopbits.nimble            package definition
+    src/shopbits.nim           main module: money, prices, taxes
+    src/shopbits/              submodules
       pm_decimals.nim            fixed precision decimals based on int64
       structured_code.nim        fixed-width codes made of named slots, with typed queries
       structured_code/           its submodules
@@ -20,18 +20,18 @@ or [Nim's installer](https://nim-lang.org/install.html).
 
 ## Using it
 
-shopcore is a library. Import it from your code:
+shopbits is a library. Import it from your code:
 
-    import shopcore
+    import shopbits
 
 ### structured_code
 
-`shopcore/structured_code` is a generic building block for identifiers such as
+`shopbits/structured_code` is a generic building block for identifiers such as
 SKUs: fixed-width codes made of named slots. You describe the slots, and a
 macro generates a distinct, validating type with typed accessors and a small
 query algebra (`or`, `and`, `-`, `not`, `<=`, `in`):
 
-    import shopcore/structured_code
+    import shopbits/structured_code
 
     const skuLayout = Layout(name: "sku", slots: @[
       slot("category", 3), slot("color", 3), slot("size", 2)])
@@ -50,11 +50,11 @@ query algebra (`or`, `and`, `-`, `not`, `<=`, `in`):
 Using a slot that does not exist, or mixing queries of different kinds of
 codes, does not compile. `defineCodeFamily` handles several kinds of codes that
 live next to each other (told apart by a prefix). See the module documentation
-in `src/shopcore/structured_code.nim` for details.
+in `src/shopbits/structured_code.nim` for details.
 
 To check that the library compiles without running anything:
 
-    nim check src/shopcore.nim
+    nim check src/shopbits.nim
 
 ## Running the tests
 

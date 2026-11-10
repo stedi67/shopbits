@@ -7,7 +7,7 @@
 ## setters, and a typed query algebra:
 ##
 ## .. code-block:: nim
-##   import shopcore/structured_code
+##   import shopbits/structured_code
 ##
 ##   const colorLayout = Layout(name: "color", slots: @[
 ##     slot("hue", 3), slot("shade", 2)])

@@ -1,5 +1,5 @@
 import
-  shopcore/pm_decimals
+  shopbits/pm_decimals
 
 export pm_decimals
 

@@ -1,6 +1,6 @@
 ## Tests of `defineCodeFamily` with a made-up family of codes.
 import std/[unittest, hashes, options, strutils]
-import shopcore/structured_code
+import shopbits/structured_code
 
 const
   numberLayout = Layout(name: "number", prefix: "N", prefixExcept: @["Nx"], slots: @[

@@ -1,5 +1,5 @@
 import unittest
-import shopcore/pm_decimals
+import shopbits/pm_decimals
 
 suite "pm_decimals":
   test "parsing and formatting":
