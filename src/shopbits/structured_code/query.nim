@@ -1,7 +1,7 @@
 ## The query algebra.
 ##
-## A query describes a *set of codes*. The simplest query is a *cube*: a pattern
-## with one character per code position, where ``?`` matches any character
+## A query describes a *set of codes*. The simplest query is a *pattern*: one
+## character per code position, where ``?`` matches any character
 ## (``SHIRED??``). Queries are combined with the set operations
 ##
 ## * ``a or b``  union
@@ -49,13 +49,13 @@ type
     ## A query string could not be parsed.
 
   NodeKind* = enum
-    nkAny, nkNull, nkCube, nkUnion, nkMinus
+    nkAny, nkNull, nkPattern, nkUnion, nkMinus
 
   QueryNode* = ref object
     ## Untyped query tree. Nodes are immutable, so they can be shared freely.
     width*: int  ## length of the codes in the set
     case nk*: NodeKind
-    of nkCube: pattern*: string
+    of nkPattern: pattern*: string
     of nkUnion, nkMinus: left*, right*: QueryNode
     of nkAny, nkNull: discard
 
@@ -68,8 +68,8 @@ type
 
 func newAny*(width: int): QueryNode = QueryNode(width: width, nk: nkAny)
 func newNull*(width: int): QueryNode = QueryNode(width: width, nk: nkNull)
-func newCube*(pattern: string): QueryNode =
-  QueryNode(width: pattern.len, nk: nkCube, pattern: pattern)
+func newPattern*(pattern: string): QueryNode =
+  QueryNode(width: pattern.len, nk: nkPattern, pattern: pattern)
 
 func isNull*(n: QueryNode): bool = n.nk == nkNull
 func isAny*(n: QueryNode): bool = n.nk == nkAny
@@ -79,14 +79,14 @@ func sameStructure*(a, b: QueryNode): bool =
   if a.width != b.width or a.nk != b.nk: return false
   case a.nk
   of nkAny, nkNull: true
-  of nkCube: a.pattern == b.pattern
+  of nkPattern: a.pattern == b.pattern
   of nkUnion, nkMinus: sameStructure(a.left, b.left) and sameStructure(a.right, b.right)
 
 func `$`*(n: QueryNode): string =
   case n.nk
   of nkAny: "<All>"
   of nkNull: "<EmptySet>"
-  of nkCube: n.pattern
+  of nkPattern: n.pattern
   of nkUnion: "<QueryUnion " & $n.left & " " & $n.right & ">"
   of nkMinus: "<QueryMinus " & $n.left & " " & $n.right & ">"
 
@@ -94,22 +94,22 @@ func hash*(n: QueryNode): Hash =
   case n.nk
   of nkAny: hash(n.width) !& 1
   of nkNull: hash(n.width) !& 2
-  of nkCube: hash(n.pattern)
+  of nkPattern: hash(n.pattern)
   of nkUnion: hash(n.left) + hash(n.right)  # a or b and b or a hash alike
   of nkMinus: hash(n.left) - hash(n.right)
 
 # ---------------------------------------------------------------------------
 # set operations
 
-func cubeContains(pattern, code: string): bool =
+func patternContains(pattern, code: string): bool =
   if pattern.len != code.len: return false
   for i in 0 ..< pattern.len:
     if pattern[i] != Wildcard and pattern[i] != code[i]:
       return false
   true
 
-func mergeCubes(a, b: string, merged: var string): bool =
-  ## Intersection of two cubes. False if they are disjoint.
+func mergePatterns(a, b: string, merged: var string): bool =
+  ## Intersection of two patterns. False if they are disjoint.
   merged = newString(a.len)
   for i in 0 ..< a.len:
     if a[i] == Wildcard: merged[i] = b[i]
@@ -130,7 +130,7 @@ func intersection*(a, b: QueryNode): QueryNode =
   if a.isNull or b.isNull: return newNull(a.width)
   if a.isAny: return b
   if b.isAny: return a
-  # Distribute over unions and differences so that only cubes are left.
+  # Distribute over unions and differences so that only patterns are left.
   if a.nk == nkUnion:
     return union(intersection(a.left, b), intersection(a.right, b))
   if b.nk == nkUnion:
@@ -140,14 +140,14 @@ func intersection*(a, b: QueryNode): QueryNode =
   if b.nk == nkMinus:
     return difference(intersection(a, b.left), intersection(a, b.right))
   var merged: string
-  if mergeCubes(a.pattern, b.pattern, merged): newCube(merged)
+  if mergePatterns(a.pattern, b.pattern, merged): newPattern(merged)
   else: newNull(a.width)
 
 func difference*(a, b: QueryNode): QueryNode =
   if a.isNull or b.isNull: return a
   if b.isAny: return newNull(a.width)
   if sameStructure(a, b): return newNull(a.width)
-  if a.nk == nkCube and intersection(a, b).isNull: return a  # disjoint
+  if a.nk == nkPattern and intersection(a, b).isNull: return a  # disjoint
   QueryNode(width: a.width, nk: nkMinus, left: a, right: b)
 
 func complement*(a: QueryNode): QueryNode = difference(newAny(a.width), a)
@@ -157,7 +157,7 @@ func contains*(n: QueryNode, code: string): bool =
   case n.nk
   of nkAny: true
   of nkNull: false
-  of nkCube: cubeContains(n.pattern, code)
+  of nkPattern: patternContains(n.pattern, code)
   of nkUnion: n.left.contains(code) or n.right.contains(code)
   of nkMinus: n.left.contains(code) and not n.right.contains(code)
 
@@ -165,7 +165,7 @@ func contains*(n: QueryNode, code: string): bool =
 # deciding emptiness and inclusion
 #
 # A set is empty if no code is a member. Only the characters that occur in the
-# cubes of the expression (plus "any other character") matter at each
+# patterns of the expression (plus "any other character") matter at each
 # position, so we search over those, pruning with three valued logic.
 
 type Tri = enum tFalse, tUnknown, tTrue
@@ -191,7 +191,7 @@ func evalPartial(n: QueryNode, assign: string): Tri =
   case n.nk
   of nkAny: result = tTrue
   of nkNull: result = tFalse
-  of nkCube:
+  of nkPattern:
     result = tTrue
     for i in 0 ..< n.pattern.len:
       let p = n.pattern[i]
@@ -203,24 +203,24 @@ func evalPartial(n: QueryNode, assign: string): Tri =
   of nkMinus:
     result = and3(evalPartial(n.left, assign), not3(evalPartial(n.right, assign)))
 
-func collectCubes(n: QueryNode, cubes: var seq[string]) =
+func collectPatterns(n: QueryNode, patterns: var seq[string]) =
   case n.nk
-  of nkCube: cubes.add n.pattern
+  of nkPattern: patterns.add n.pattern
   of nkUnion, nkMinus:
-    collectCubes(n.left, cubes)
-    collectCubes(n.right, cubes)
+    collectPatterns(n.left, patterns)
+    collectPatterns(n.right, patterns)
   of nkAny, nkNull: discard
 
 func isEmpty*(n: QueryNode): bool =
   ## True if no code is a member of the set (exact).
   let width = n.width
-  var cubes: seq[string]
-  collectCubes(n, cubes)
+  var patterns: seq[string]
+  collectPatterns(n, patterns)
   var candidates = newSeq[seq[char]](width)
-  for cube in cubes:
+  for pattern in patterns:
     for i in 0 ..< width:
-      if cube[i] != Wildcard and cube[i] notin candidates[i]:
-        candidates[i].add cube[i]
+      if pattern[i] != Wildcard and pattern[i] notin candidates[i]:
+        candidates[i].add pattern[i]
   var positions: seq[int]
   for i in 0 ..< width:
     if candidates[i].len > 0: positions.add i
@@ -257,7 +257,7 @@ func regexBody(n: QueryNode): string =
   case n.nk
   of nkAny: result = repeat('.', n.width)
   of nkNull: result = "(?!)"  # never matches
-  of nkCube:
+  of nkPattern:
     for c in n.pattern:
       case c
       of Wildcard: result.add '.'
@@ -275,7 +275,7 @@ func toRegexPattern*(n: QueryNode, guard = ""): string =
   "^" & guard & "(?:" & regexBody(n) & ")$"
 
 # ---------------------------------------------------------------------------
-# parsing and building cubes
+# parsing and building patterns
 
 func isQueryChar(c: char): bool = isCodeChar(c) or c == Wildcard
 
@@ -284,7 +284,7 @@ func overlayPrefix(layout: Layout, pattern: var string) =
   for i in 0 ..< layout.prefix.len:
     pattern[i] = layout.prefix[i]
 
-proc cubeFromString*(layout: Layout, s: string): QueryNode =
+proc patternFromString*(layout: Layout, s: string): QueryNode =
   ## Parse a query string such as ``SHIRED`` or ``SHI???XL``.
   ## ``.`` and ``?`` are wildcards. The string may end at any slot boundary, the
   ## rest is filled up with wildcards. Raises `IncompatibleQueryError` if the
@@ -303,11 +303,11 @@ proc cubeFromString*(layout: Layout, s: string): QueryNode =
     raise newException(QueryStringError,
       "query string '" & s & "' does not end at a slot boundary")
   pattern.add repeat(Wildcard, layout.codeLen - pattern.len)
-  newCube(pattern)
+  newPattern(pattern)
 
-proc cubeFromSlots*(layout: Layout,
+proc patternFromSlots*(layout: Layout,
                     parts: openArray[tuple[offset, width: int, value: string]]): QueryNode =
-  ## Build a cube from slot values. Everything not given is a wildcard.
+  ## Build a pattern from slot values. Everything not given is a wildcard.
   var pattern = repeat(Wildcard, layout.codeLen)
   overlayPrefix(layout, pattern)
   for (offset, width, value) in parts:
@@ -320,7 +320,7 @@ proc cubeFromSlots*(layout: Layout,
       else:
         raise newException(QueryStringError,
           "invalid character '" & c & "' in slot value '" & value & "'")
-  newCube(pattern)
+  newPattern(pattern)
 
 # ---------------------------------------------------------------------------
 # typed queries
@@ -341,17 +341,17 @@ func nullQuery*[C](): Query[C] =
 
 func toQuery*[C](code: C): Query[C] =
   ## The query matching exactly one code.
-  Query[C](node: newCube(string(code)))
+  Query[C](node: newPattern(string(code)))
 
-proc cubeFrom*[C](parts: openArray[tuple[offset, width: int, value: string]]): Query[C] =
+proc patternFrom*[C](parts: openArray[tuple[offset, width: int, value: string]]): Query[C] =
   mixin layoutOf
-  Query[C](node: cubeFromSlots(layoutOf(C), parts))
+  Query[C](node: patternFromSlots(layoutOf(C), parts))
 
 proc parseQuery*[C](s: string): Query[C] =
   ## Parse a query string, e.g. ``parseQuery[SkuCode]("SHIRED")``.
   ## Raises `IncompatibleQueryError` if the string is about another kind of code.
   mixin layoutOf
-  Query[C](node: cubeFromString(layoutOf(C), s))
+  Query[C](node: patternFromString(layoutOf(C), s))
 
 func `or`*[C](a, b: Query[C]): Query[C] =
   Query[C](node: union(a.nodeOf, b.nodeOf))

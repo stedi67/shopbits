@@ -72,7 +72,7 @@ macro defineImpl(codeType, queryType: untyped, layout: static Layout,
     src.add "  raw[" & lo & " ..< " & hi & "] = v\n"
     src.add "  " & ct & "(raw)\n"
     src.add "proc from" & cap & "*(T: typedesc[" & qt & "], value: string): " & qt & " =\n"
-    src.add "  cubeFrom[" & ct & "]([(" & lo & ", " & $s.width & ", value)])\n"
+    src.add "  patternFrom[" & ct & "]([(" & lo & ", " & $s.width & ", value)])\n"
     fromSlotsParams.add ", " & name & " = \"\""
     fromSlotsBody.add "  if " & name & ".len > 0: parts.add (" & lo & ", " & $s.width & ", " & name & ")\n"
     offset += s.width
@@ -80,7 +80,7 @@ macro defineImpl(codeType, queryType: untyped, layout: static Layout,
   src.add "proc fromSlots*(T: typedesc[" & qt & "]" & fromSlotsParams & "): " & qt & " =\n"
   src.add "  var parts: seq[tuple[offset, width: int, value: string]]\n"
   src.add fromSlotsBody
-  src.add "  cubeFrom[" & ct & "](parts)\n"
+  src.add "  patternFrom[" & ct & "](parts)\n"
   result = parseStmt(src)
 
 template defineStructuredCode*(codeType, queryType, layoutConst: untyped) =
