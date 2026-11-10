@@ -37,12 +37,20 @@
 ##             businessTypes: {btB2C}, rate: newDecimal("0.19"))])
 ##
 ##   let buyer = TaxAddress(country_code: "de")
-##   let lookup = registry.taxFor("acme", "de", buyer, btB2C, GoodsType.physical)
+##   let lookup = registry.taxFor("acme", "de", buyer, btB2C, GoodsType.physical,
+##                                initDate(2026, 6, 15))
 ##   assert lookup.allowed and lookup.decision.totalRate == newDecimal("0.19")
 ##
 ## For each tax, the rules are checked in order and the first match wins, so put
 ## specific rules before general ones. Tax regions are compared exactly (they are
 ## the country codes of `taxAddressToTaxRegion`).
+##
+## Rules can be **effective for a period**: a rule with `validFrom` and/or
+## `validUntil` (both inclusive) only applies on days in that period, so a rate
+## change can be entered in advance, and a sale on a past day is taxed with the
+## rule that was effective then. Every lookup therefore takes the day (`asOf`) it
+## is for; there is deliberately no default, so a result never silently depends on
+## today's date.
 ##
 ## A `LineItem` (which names the seller and the delivery source) has a
 ## `CatalogPrice` without any tax: the tax is only known once all information
@@ -52,7 +60,9 @@
 ## the taxes at the rates of the nexus.
 
 import std/options
-import ../shopbits
+import ../shopbits, date
+
+export date
 
 type
   Fallback* {.pure.} = enum
@@ -70,6 +80,10 @@ type
     rate*: Decimal
     treatment*: TaxTreatment
     reason*: string  ## optional explanation, e.g. for invoices
+    validFrom*: Option[Date]
+      ## the first day the rule is effective; none: it has always been
+    validUntil*: Option[Date]
+      ## the last day the rule is effective; none: it stays effective
 
   Nexus* = object
     ## The rules of one seller delivering from one tax region.
@@ -132,16 +146,32 @@ proc add*(registry: var NexusRegistry, nexus: Nexus) =
       "' delivering from '" & nexus.source & "'")
   registry.nexuses.add nexus
 
+func len*(registry: NexusRegistry): int =
+  ## The number of nexuses.
+  registry.nexuses.len
+
+iterator items*(registry: NexusRegistry): Nexus =
+  ## The nexuses, in the order they were added.
+  for nexus in registry.nexuses:
+    yield nexus
+
 # looking up the tax
 
+func isEffectiveOn*(rule: TaxRule, day: Date): bool =
+  ## Is the rule effective on `day`? Both ends of the period are inclusive.
+  (rule.validFrom.isNone or rule.validFrom.get <= day) and
+    (rule.validUntil.isNone or day <= rule.validUntil.get)
+
 func matches(rule: TaxRule, destination: string, businessType: BusinessType,
-             goodsType: GoodsType): bool =
+             goodsType: GoodsType, asOf: Date): bool =
   rule.destination == destination and
-    goodsType in rule.goodsTypes and businessType in rule.businessTypes
+    goodsType in rule.goodsTypes and businessType in rule.businessTypes and
+    rule.isEffectiveOn(asOf)
 
 proc taxFor*(nexus: Nexus, buyer: TaxAddress, businessType: BusinessType,
-             goodsType: GoodsType): TaxLookup =
-  ## The tax for selling `goodsType` to `buyer` under the rules of the nexus.
+             goodsType: GoodsType, asOf: Date): TaxLookup =
+  ## The tax for selling `goodsType` to `buyer` on the day `asOf` under the rules
+  ## of the nexus that are effective on that day.
   let destination = taxAddressToTaxRegion(buyer)
   # The lines follow the order in which the taxes first appear in the rules, no
   # matter which rule of a tax wins.
@@ -151,7 +181,7 @@ proc taxFor*(nexus: Nexus, buyer: TaxAddress, businessType: BusinessType,
   var lines: seq[TaxLine]
   for tax in taxes:
     for rule in nexus.rules:
-      if rule.tax == tax and rule.matches(destination, businessType, goodsType):
+      if rule.tax == tax and rule.matches(destination, businessType, goodsType, asOf):
         lines.add TaxLine(tax: rule.tax, rate: rule.rate, treatment: rule.treatment,
                           reason: rule.reason)
         break
@@ -160,34 +190,37 @@ proc taxFor*(nexus: Nexus, buyer: TaxAddress, businessType: BusinessType,
   case nexus.fallback
   of Fallback.zeroTax:
     TaxLookup(allowed: true, decision: TaxDecision(
-      reason: "no tax rule for '" & destination & "', no tax is charged"))
+      reason: "no tax rule for '" & destination & "' on " & $asOf &
+              ", no tax is charged"))
   of Fallback.reject:
     TaxLookup(allowed: false, reason:
       "seller '" & nexus.seller & "' delivering from '" & nexus.source &
-      "' may not sell to '" & destination & "'")
+      "' may not sell to '" & destination & "' on " & $asOf)
 
 proc taxFor*(registry: NexusRegistry, seller, source: string, buyer: TaxAddress,
-             businessType: BusinessType, goodsType: GoodsType): TaxLookup =
+             businessType: BusinessType, goodsType: GoodsType, asOf: Date): TaxLookup =
   ## Like `taxFor` for a nexus, looking up the nexus of `seller` delivering from
   ## `source` first. Selling without a nexus is not allowed.
   let nexus = registry.find(seller, source)
   if nexus.isNone:
     return TaxLookup(allowed: false, reason:
       "seller '" & seller & "' has no nexus for deliveries from '" & source & "'")
-  nexus.get.taxFor(buyer, businessType, goodsType)
+  nexus.get.taxFor(buyer, businessType, goodsType, asOf)
 
 # line items
 
-proc taxFor*(registry: NexusRegistry, item: LineItem, buyer: TaxAddress): TaxLookup =
+proc taxFor*(registry: NexusRegistry, item: LineItem, buyer: TaxAddress,
+             asOf: Date): TaxLookup =
   ## Like `taxFor`, with the seller, delivery source, business type and goods type
   ## of the line item.
   registry.taxFor(item.seller, item.deliverySource, buyer, item.businessType,
-                  item.article.goodsType)
+                  item.article.goodsType, asOf)
 
-proc applyTax*(registry: NexusRegistry, item: LineItem, buyer: TaxAddress): TaxedLineItem =
+proc applyTax*(registry: NexusRegistry, item: LineItem, buyer: TaxAddress,
+               asOf: Date): TaxedLineItem =
   ## Apply the tax of the nexus of `item` to its price. If the seller may not sell
   ## the item to `buyer`, the result says why.
-  let lookup = registry.taxFor(item, buyer)
+  let lookup = registry.taxFor(item, buyer, asOf)
   if not lookup.allowed:
     return TaxedLineItem(allowed: false, reason: lookup.reason)
   TaxedLineItem(allowed: true, item: item,
